@@ -1,0 +1,148 @@
+[index.html.html](https://github.com/user-attachments/files/29232015/index.html.html)
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>公司行動打卡系統 (定點限制版)</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background-color: #f4f7f6; text-align: center; }
+        .card { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); max-width: 400px; margin: auto; }
+        h2 { color: #333; }
+        input, button { width: 100%; padding: 12px; margin: 10px 0; border-radius: 5px; border: 1px solid #ccc; box-sizing: border-box; font-size: 16px; }
+        button { background-color: #28a745; color: white; border: none; cursor: pointer; font-weight: bold; }
+        button:hover { background-color: #218838; }
+        .btn-off { background-color: #dc3545; }
+        .btn-off:hover { background-color: #c82333; }
+        #status { margin-top: 15px; font-weight: bold; color: #666; line-height: 1.5; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h2>📌 定點 GPS 打卡</h2>
+    <p style="font-size: 14px; color: #666;">（請開啟手機定位並接近公司範圍）</p>
+    
+    <label for="empName">員工姓名：</label>
+    <input type="text" id="empName" placeholder="請輸入您的姓名" required>
+    
+    <button type="button" onclick="getLocation('上班')">🌅 上班打卡</button>
+    <button type="button" class="btn-off" onclick="getLocation('下班')">🌌 下班打卡</button>
+    
+    <div id="status"></div>
+</div>
+
+<script>
+// ==================== [ 系統參數設定 ] ====================
+// 已幫您填入專屬的 GAS 網址
+const GAS_URL = "https://script.google.com/macros/s/AKfycbzCdoO5z1ocJJVsjOMaZJpafHMvkhKwWcEhPqq8ltKnyljMB6Tc9wPIjfW27-FU1CeM/exec"; 
+const COMPANY_LAT = 23.484433301249886; // 公司緯度
+const COMPANY_LNG = 120.4440414095138;  // 公司經度
+const MAX_DISTANCE = 200;               // 允許打卡的半徑範圍 (單位：公尺)
+// =========================================================
+
+function getLocation(type) {
+    const name = document.getElementById("empName").value.trim();
+    const statusDiv = document.getElementById("status");
+    
+    if (!name) {
+        alert("請先輸入姓名！");
+        return;
+    }
+    
+    statusDiv.innerHTML = "🔄 正在驗證您的位置...";
+    statusDiv.style.color = "#666";
+
+    if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                verifyLocationAndSend(name, type, position.coords);
+            }, 
+            (error) => {
+                handleLocationError(error);
+            },
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        );
+    } else {
+        statusDiv.innerHTML = "❌ 您的瀏覽器不支援 GPS 定位功能。";
+        statusDiv.style.color = "red";
+    }
+}
+
+// 半正矢公式 (Haversine Formula) 計算直線距離
+function getDistance(lat1, lon1, lat2, lon2) {
+    const R = 6371e3; // 地球半徑 (公尺)
+    const φ1 = lat1 * Math.PI / 180;
+    const φ2 = lat2 * Math.PI / 180;
+    const Δφ = (lat2 - lat1) * Math.PI / 180;
+    const Δλ = (lon2 - lon1) * Math.PI / 180;
+
+    const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+              Math.cos(φ1) * Math.cos(φ2) *
+              Math.sin(Δλ/2) * Math.sin(Δλ/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+
+    return R * c; 
+}
+
+function verifyLocationAndSend(name, type, coords) {
+    const statusDiv = document.getElementById("status");
+    
+    // 計算距離
+    const distance = getDistance(coords.latitude, coords.longitude, COMPANY_LAT, COMPANY_LNG);
+    
+    // 超出範圍攔截
+    if (distance > MAX_DISTANCE) {
+        statusDiv.innerHTML = `❌ 打卡失敗！<br>您目前距離公司約 <b>${Math.round(distance)}</b> 公尺。<br>已超出規定的 ${MAX_DISTANCE} 公尺範圍。`;
+        statusDiv.style.color = "red";
+        return;
+    }
+
+    statusDiv.innerHTML = "🚀 範圍驗證成功！傳送打卡資料中...";
+
+    const payload = {
+        name: name,
+        type: type,
+        latitude: coords.latitude,
+        longitude: coords.longitude,
+        accuracy: coords.accuracy
+    };
+
+    fetch(GAS_URL, {
+        method: "POST",
+        mode: "no-cors",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+    })
+    .then(() => {
+        statusDiv.innerHTML = `✅ ${type}打卡成功！<br>距離公司：${Math.round(distance)} 公尺<br>(定位誤差約 ${Math.round(coords.accuracy)} 公尺)`;
+        statusDiv.style.color = "green";
+    })
+    .catch((error) => {
+        statusDiv.innerHTML = "❌ 連線後端失敗，請稍後再試。";
+        statusDiv.style.color = "red";
+    });
+}
+
+function handleLocationError(error) {
+    const statusDiv = document.getElementById("status");
+    statusDiv.style.color = "red";
+    switch(error.code) {
+        case error.PERMISSION_DENIED:
+            statusDiv.innerHTML = "❌ 請開啟手機的「瀏覽器定位權限」再試一次。";
+            break;
+        case error.POSITION_UNAVAILABLE:
+            statusDiv.innerHTML = "❌ 無法取得位置，請確認手機已開啟 GPS 且非處於地下室。";
+            break;
+        case error.TIMEOUT:
+            statusDiv.innerHTML = "❌ 定位逾時，請到窗邊或空曠處重試。";
+            break;
+        default:
+            statusDiv.innerHTML = "❌ 發生未知定位錯誤。";
+            break;
+    }
+}
+</script>
+
+</body>
+</html>
